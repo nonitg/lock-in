@@ -1,6 +1,7 @@
 import AppKit
 import LockInCore
 import os
+import UniformTypeIdentifiers
 
 let log = Logger(subsystem: "com.nonit.lockin", category: "app")
 
@@ -154,10 +155,16 @@ final class FocusController {
     }
 
     func openParkingLot() {
-        NSWorkspace.shared.open(parkingLot.ensureExists())
+        openAsText(parkingLot.ensureExists())
     }
 
-    func editBlocklist() { NSWorkspace.shared.open(blocklist.ensureExists()) }
+    func editBlocklist() { openAsText(blocklist.ensureExists()) }
+
+    /// Plain-text editor (TextEdit unless changed), not whatever claims .md — often Xcode.
+    private func openAsText(_ url: URL) {
+        guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else { NSWorkspace.shared.open(url); return }
+        NSWorkspace.shared.open([url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+    }
 
     /// Cheap refreshes worth doing when the user looks at the menu.
     func menuWillOpen() {
