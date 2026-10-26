@@ -73,6 +73,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         switch e.phase {
         case .idle:
             menu.addItem(action("Start Focus…", key: "f") { $0.askIntention() })
+            menu.addItem(.separator())
             menu.addItem(radio("Timer · \(c.settings.focusMinutes) min", on: c.settings.mode == .fixed) { $0.update { $0.mode = .fixed } })
             menu.addItem(radio("Flow · count up, break scales", on: c.settings.mode == .flow) { $0.update { $0.mode = .flow } })
         case .focus:
