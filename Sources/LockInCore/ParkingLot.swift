@@ -16,9 +16,17 @@ public struct ParkingLot: Sendable {
             try handle.seekToEnd()
             try handle.write(contentsOf: line)
         } else {
-            try (Data("# Parking lot\n\n".utf8) + line).write(to: url)
+            try (Data(Self.header.utf8) + line).write(to: url)
         }
     }
+
+    /// Writes an empty lot on first open so there's something to look at, without inventing an item.
+    public func ensureExists() -> URL {
+        if !FileManager.default.fileExists(atPath: url.path) { try? Self.header.write(to: url, atomically: true, encoding: .utf8) }
+        return url
+    }
+
+    private static let header = "# Parking lot\n\n"
 
     /// Unchecked items.
     public func openCount() -> Int {

@@ -8,10 +8,12 @@ final class PromptPanel: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     private var field: NSTextField?
     private var onSubmit: ((String) -> Void)?
 
-    func show(placeholder: String, onSubmit: @escaping (String) -> Void) {
+    /// `hint` sits right-aligned in secondary text, e.g. "50 min ↩".
+    func show(symbol: String, placeholder: String, hint: String, onSubmit: @escaping (String) -> Void) {
         close()
         self.onSubmit = onSubmit
-        let size = NSSize(width: 560, height: 56)
+        let size = NSSize(width: 600, height: 56)
+        let inset: CGFloat = 18
         let p = KeyPanel(contentRect: NSRect(origin: .zero, size: size),
                          styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.level = .floating
@@ -27,24 +29,48 @@ final class PromptPanel: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         bg.material = .popover
         bg.state = .active
         bg.wantsLayer = true
-        bg.layer?.cornerRadius = 12
+        bg.layer?.cornerRadius = 16
+        bg.layer?.cornerCurve = .continuous
         bg.layer?.masksToBounds = true
+        bg.layer?.borderWidth = 1
+        bg.effectiveAppearance.performAsCurrentDrawingAppearance {
+            bg.layer?.borderColor = NSColor.separatorColor.cgColor
+        }
 
-        let f = NSTextField(frame: NSRect(x: 18, y: 14, width: size.width - 36, height: 28))
+        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
+        icon.symbolConfiguration = .init(pointSize: 18, weight: .medium)
+        icon.contentTintColor = .secondaryLabelColor
+        icon.frame = NSRect(x: inset, y: 0, width: 24, height: size.height)
+
+        let tail = NSTextField(labelWithString: hint)
+        tail.font = .systemFont(ofSize: 13, weight: .medium)
+        tail.textColor = .tertiaryLabelColor
+        tail.sizeToFit()
+        tail.frame.origin = NSPoint(x: size.width - inset - tail.frame.width, y: ((size.height - tail.frame.height) / 2).rounded())
+
+        let f = NSTextField(string: "")
         f.placeholderString = placeholder
-        f.font = .systemFont(ofSize: 19)
+        f.font = .systemFont(ofSize: 20)
         f.isBordered = false
         f.drawsBackground = false
         f.focusRingType = .none
+        f.usesSingleLineMode = true
         f.delegate = self
-        bg.addSubview(f)
+        // Center on the text's line height, not an arbitrary frame, so the caret sits on the optical midline.
+        let lineHeight = f.cell?.cellSize.height ?? 26
+        let fieldX = icon.frame.maxX + 10
+        f.frame = NSRect(x: fieldX, y: ((size.height - lineHeight) / 2).rounded(),
+                         width: tail.frame.minX - 12 - fieldX, height: lineHeight)
+
+        [icon, f, tail].forEach(bg.addSubview)
         p.contentView = bg
 
-        // Fixed spot: horizontally centered, a fifth of the way down the screen under the mouse.
+        // Spotlight's spot: centered on the full screen width, a fifth of the way down the screen under the mouse.
         let mouse = NSEvent.mouseLocation
-        let screen = (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main)?.visibleFrame ?? .zero
-        p.setFrameOrigin(NSPoint(x: (screen.midX - size.width / 2).rounded(),
-                                 y: (screen.maxY - screen.height * 0.2 - size.height).rounded()))
+        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let frame = screen?.frame ?? .zero, visible = screen?.visibleFrame ?? .zero
+        p.setFrameOrigin(NSPoint(x: (frame.midX - size.width / 2).rounded(),
+                                 y: (visible.maxY - frame.height * 0.2 - size.height).rounded()))
         p.makeKeyAndOrderFront(nil)
         p.makeFirstResponder(f)
         panel = p

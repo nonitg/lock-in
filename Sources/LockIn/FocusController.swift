@@ -105,7 +105,7 @@ final class FocusController {
 
     func askIntention() {
         let mode = settings.mode == .fixed ? "\(settings.focusMinutes) min" : "Flow"
-        prompt.show(placeholder: "One thing for this block?  (\(mode) · Enter starts · Esc cancels)") { [weak self] text in
+        prompt.show(symbol: "scope", placeholder: "What's the one thing for this block?", hint: "\(mode)  ↩") { [weak self] text in
             self?.start(intention: text)
         }
     }
@@ -150,12 +150,11 @@ final class FocusController {
     func hideOverlay() { overlay.hide() }
 
     func showParkingLot() {
-        prompt.show(placeholder: "Park a thought…  (Enter saves · Esc cancels)") { [weak self] text in self?.park(text) }
+        prompt.show(symbol: "tray.and.arrow.down", placeholder: "Park a thought for later", hint: "Save  ↩") { [weak self] text in self?.park(text) }
     }
 
     func openParkingLot() {
-        if !FileManager.default.fileExists(atPath: parkingLot.url.path) { try? parkingLot.append("(parking lot created)") }
-        NSWorkspace.shared.open(parkingLot.url)
+        NSWorkspace.shared.open(parkingLot.ensureExists())
     }
 
     func editBlocklist() { NSWorkspace.shared.open(blocklist.ensureExists()) }
@@ -345,6 +344,7 @@ final class FocusController {
     // MARK: Parking lot
 
     private func park(_ text: String) {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         do {
             try parkingLot.append(text)
             parkedCount = parkingLot.openCount()

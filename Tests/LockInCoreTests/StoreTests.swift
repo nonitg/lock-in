@@ -57,6 +57,16 @@ struct ParkingLotTests {
         #expect(text.hasPrefix("# Parking lot"))
         #expect(text.contains("email Sam about invoice"))
     }
+
+    @Test func ensureExistsCreatesEmptyLot() throws {
+        let url = tempFile("parking-lot.md")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lot = ParkingLot(url: url)
+        _ = lot.ensureExists()
+        #expect(lot.openCount() == 0)
+        try lot.append("first thought")
+        #expect(lot.openCount() == 1)
+    }
 }
 
 struct SettingsTests {
