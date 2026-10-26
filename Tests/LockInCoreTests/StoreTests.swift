@@ -1,0 +1,75 @@
+import Foundation
+import Testing
+@testable import LockInCore
+
+private func tempFile(_ name: String) -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("lockin-tests-\(UUID().uuidString)")
+        .appendingPathComponent(name)
+}
+
+struct StatsStoreTests {
+    @Test func aggregatesTodayAndPersists() throws {
+        let url = tempFile("sessions.jsonl")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let now = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
+
+        let store = StatsStore(url: url, now: now)
+        store.append(Session(start: now, end: now, focusedSeconds: 3000, intention: "a", completed: true))
+        store.append(Session(start: now, end: now, focusedSeconds: 600, intention: "b", completed: false))
+        store.append(Session(start: yesterday, end: yesterday, focusedSeconds: 1500, intention: "c", completed: true))
+
+        let reloaded = StatsStore(url: url, now: now)
+        #expect(reloaded.sessions.count == 3)
+        #expect(reloaded.focusedSeconds(on: now) == 3600)
+        #expect(reloaded.completedBlocks(on: now) == 1)
+        let week = reloaded.dailyTotals(days: 7, endingOn: now)
+        #expect(week.count == 7)
+        #expect(week.map(\.seconds).suffix(2) == [1500, 3600])
+    }
+}
+
+struct BlocklistTests {
+    let sites = ["https://www.YouTube.com/feed", "x.com"]
+
+    @Test func matchesDomainsAndSubdomains() {
+        #expect(Blocklist.isBlocked(host: "www.youtube.com", domains: sites))
+        #expect(Blocklist.isBlocked(host: "m.youtube.com", domains: sites))
+        #expect(Blocklist.isBlocked(host: "x.com", domains: sites))
+        #expect(!Blocklist.isBlocked(host: "notx.com", domains: sites))
+        #expect(!Blocklist.isBlocked(host: "github.com", domains: sites))
+        #expect(Blocklist.host(of: "https://www.reddit.com/r/swift") == "www.reddit.com")
+        #expect(Blocklist.host(of: "file:///tmp/blocked.html") == nil)
+    }
+
+    @Test func matchesAppsByNameOrBundleID() {
+        let apps = Blocklist.parseList("Slack, discord\ncom.apple.mail")
+        #expect(apps == ["Slack", "discord", "com.apple.mail"])
+        #expect(Blocklist.isBlocked(appName: "Discord", bundleID: "com.hnc.Discord", list: apps))
+        #expect(Blocklist.isBlocked(appName: "Mail", bundleID: "com.apple.mail", list: apps))
+        #expect(!Blocklist.isBlocked(appName: "Xcode", bundleID: "com.apple.dt.Xcode", list: apps))
+    }
+}
+
+struct ParkingLotTests {
+    @Test func appendsAndCountsOpenItems() throws {
+        let url = tempFile("parking-lot.md")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let lot = ParkingLot(url: url)
+        try lot.append("email Sam about invoice")
+        try lot.append("   ")
+        try lot.append("look up SMAppService docs")
+        #expect(lot.openCount() == 2)
+        let text = try String(contentsOf: url, encoding: .utf8)
+        #expect(text.hasPrefix("# Parking lot"))
+        #expect(text.contains("email Sam about invoice"))
+    }
+}
+
+struct SettingsTests {
+    @Test func decodesOldPayloadWithDefaults() throws {
+        let s = try JSONDecoder().decode(FocusSettings.self, from: Data(#"{"focusMinutes": 25, "mode": "flow"}"#.utf8))
+        #expect(s.focusMinutes == 25 && s.mode == .flow && s.shortBreakMinutes == 10 && s.secondsPerMinute == 60)
+    }
+}

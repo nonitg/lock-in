@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Blocked · Lock In</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; height: 100vh; display: grid; place-items: center; font: 16px -apple-system, system-ui, sans-serif;
+         background: #111; color: #eee; }
+  main { text-align: center; max-width: 34rem; padding: 2rem; }
+  .site { opacity: .6; }
+  .intent { font-size: 2rem; font-weight: 600; margin: 1rem 0; }
+  .left { font: 300 3rem ui-rounded, -apple-system, sans-serif; font-variant-numeric: tabular-nums; opacity: .8; }
+</style>
+</head>
+<body>
+<main>
+  <div class="site"><span id="site"></span> is blocked during focus</div>
+  <div class="intent" id="intent">Back to it.</div>
+  <div class="left" id="left"></div>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('site').textContent = q.get('site') || 'This site';
+  if (q.get('intent')) document.getElementById('intent').textContent = 'Back to: ' + q.get('intent');
+  const until = Number(q.get('until'));
+  const left = document.getElementById('left');
+  function tick() {
+    const s = Math.max(0, Math.round(until - Date.now() / 1000));
+    left.textContent = s ? String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0') + ' left' : 'Focus block over';
+  }
+  if (until) { tick(); setInterval(tick, 1000); }
+</script>
+</body>
+</html>
