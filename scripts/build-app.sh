@@ -9,7 +9,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
 cp .build/arm64-apple-macosx/release/LockIn "$APP/Contents/MacOS/LockIn"
 cp Support/Info.plist "$APP/Contents/Info.plist"
-cp Support/blocked.html "$APP/Contents/Resources/"
 cp Support/com.nonit.lockin.agent.plist "$APP/Contents/Library/LaunchAgents/"
 # Stable signing identity so macOS permissions (Automation, notifications) survive rebuilds.
 codesign --force --sign "${LOCKIN_SIGN_IDENTITY:-Apple Development}" "$APP"
@@ -23,5 +22,6 @@ if pgrep -x LockIn >/dev/null; then
 fi
 rm -rf /Applications/LockIn.app
 cp -R "$APP" /Applications/LockIn.app
-open -g /Applications/LockIn.app
+# Prefer launching through the login agent so launchd owns the process (crash -> relaunch).
+launchctl kickstart "gui/$(id -u)/com.nonit.lockin.agent" 2>/dev/null || open -g /Applications/LockIn.app
 echo "installed /Applications/LockIn.app"

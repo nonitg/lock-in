@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller = FocusController()
         statusItem = StatusItemController(controller: controller)
         controller.onChange = { [weak self] in self?.statusItem.refresh() }
-        controller.requestPopover = { [weak self] in self?.statusItem.showPopover() }
+        controller.onSnapshot = { [weak self] dir in self?.statusItem.dumpMenu(to: dir) }
         statusItem.refresh()
 
         let mods = controlKey | optionKey
@@ -28,8 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LoginItem.sync(enabled: controller.settings.launchAtLogin)
     }
 
-    /// lockin://start?intent=…, toggle, stop, break, skip, extend, park?text=…, show, quit
-    /// Handy for Raycast/Shortcuts and for scripted testing.
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls { controller?.handle(url: url) }
     }

@@ -19,8 +19,6 @@ public struct FocusSettings: Codable, Equatable, Sendable {
     public var autoStartBreaks = false
 
     public var blockingEnabled = true
-    public var blockedApps = ["Slack", "Discord", "Messages", "Mail"]
-    public var blockedSites = ["x.com", "twitter.com", "youtube.com", "reddit.com", "news.ycombinator.com", "instagram.com"]
 
     public var autoDoNotDisturb = false
     public var idlePauseEnabled = true
@@ -39,7 +37,7 @@ public struct FocusSettings: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case mode, focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case flowBreakDivisor, minFlowBreakMinutes, autoStartBreaks
-        case blockingEnabled, blockedApps, blockedSites
+        case blockingEnabled
         case autoDoNotDisturb, idlePauseEnabled, idleMinutes, breakOverlayEnabled, launchAtLogin, sound
     }
 
@@ -57,8 +55,6 @@ public struct FocusSettings: Codable, Equatable, Sendable {
         minFlowBreakMinutes = v(.minFlowBreakMinutes, d.minFlowBreakMinutes)
         autoStartBreaks = v(.autoStartBreaks, d.autoStartBreaks)
         blockingEnabled = v(.blockingEnabled, d.blockingEnabled)
-        blockedApps = v(.blockedApps, d.blockedApps)
-        blockedSites = v(.blockedSites, d.blockedSites)
         autoDoNotDisturb = v(.autoDoNotDisturb, d.autoDoNotDisturb)
         idlePauseEnabled = v(.idlePauseEnabled, d.idlePauseEnabled)
         idleMinutes = v(.idleMinutes, d.idleMinutes)

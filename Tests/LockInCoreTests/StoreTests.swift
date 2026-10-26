@@ -31,24 +31,16 @@ struct StatsStoreTests {
 }
 
 struct BlocklistTests {
-    let sites = ["https://www.YouTube.com/feed", "x.com"]
-
-    @Test func matchesDomainsAndSubdomains() {
-        #expect(Blocklist.isBlocked(host: "www.youtube.com", domains: sites))
-        #expect(Blocklist.isBlocked(host: "m.youtube.com", domains: sites))
-        #expect(Blocklist.isBlocked(host: "x.com", domains: sites))
-        #expect(!Blocklist.isBlocked(host: "notx.com", domains: sites))
-        #expect(!Blocklist.isBlocked(host: "github.com", domains: sites))
-        #expect(Blocklist.host(of: "https://www.reddit.com/r/swift") == "www.reddit.com")
-        #expect(Blocklist.host(of: "file:///tmp/blocked.html") == nil)
-    }
-
     @Test func matchesAppsByNameOrBundleID() {
-        let apps = Blocklist.parseList("Slack, discord\ncom.apple.mail")
-        #expect(apps == ["Slack", "discord", "com.apple.mail"])
+        let apps = ["Slack", "discord", "com.apple.mail"]
         #expect(Blocklist.isBlocked(appName: "Discord", bundleID: "com.hnc.Discord", list: apps))
         #expect(Blocklist.isBlocked(appName: "Mail", bundleID: "com.apple.mail", list: apps))
         #expect(!Blocklist.isBlocked(appName: "Xcode", bundleID: "com.apple.dt.Xcode", list: apps))
+    }
+
+    @Test func parsesFileSkippingComments() {
+        #expect(BlocklistFile.parse("# hi\n Slack \n\n# Mail\nDiscord\n") == ["Slack", "Discord"])
+        #expect(BlocklistFile.parse(BlocklistFile.defaultText).contains("Slack"))
     }
 }
 

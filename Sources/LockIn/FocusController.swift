@@ -1,13 +1,11 @@
 import AppKit
 import LockInCore
-import Observation
 import os
-import SwiftUI
 
 let log = Logger(subsystem: "com.nonit.lockin", category: "app")
 
 /// Owns the timer and keeps every side effect (blocking, DND, overlay, notifications) in sync with it.
-@MainActor @Observable
+@MainActor
 final class FocusController {
     private(set) var engine: TimerEngine
     private(set) var settings: FocusSettings
@@ -16,27 +14,29 @@ final class FocusController {
     /// Set when focus auto-paused because nobody was at the keyboard.
     private(set) var idlePausedAt: Date?
     private(set) var dndShortcutsInstalled = false
-    var draftIntention = ""
 
-    @ObservationIgnored var onChange: (() -> Void)?
-    @ObservationIgnored var requestPopover: (() -> Void)?
-    @ObservationIgnored let stats: StatsStore
-    @ObservationIgnored let parkingLot: ParkingLot
-    @ObservationIgnored private let notifier = Notifier()
-    @ObservationIgnored private let hud = HUD()
-    @ObservationIgnored private let appBlocker = AppBlocker()
-    @ObservationIgnored private let arcBlocker = ArcBlocker()
-    @ObservationIgnored private let dnd = FocusModeBridge()
-    @ObservationIgnored private lazy var overlay = BreakOverlay(controller: self)
-    @ObservationIgnored private lazy var parkingPanel = ParkingLotPanel()
-    @ObservationIgnored private var ticker: Timer?
-    @ObservationIgnored private var returnWatcher: Timer?
-    @ObservationIgnored private var lastPhase: Phase = .idle
+    /// UI refresh hook (menu bar title, open menu, overlay).
+    var onChange: (() -> Void)?
+    /// Debug hook so the menu can dump its items alongside overlay/prompt PNGs.
+    var onSnapshot: ((URL) -> Void)?
+    let stats: StatsStore
+    let parkingLot: ParkingLot
+    let blocklist: BlocklistFile
+    private let notifier = Notifier()
+    private let hud = HUD()
+    private let appBlocker = AppBlocker()
+    private let dnd = FocusModeBridge()
+    private lazy var overlay = BreakOverlay(controller: self)
+    private let prompt = PromptPanel()
+    private var ticker: Timer?
+    private var returnWatcher: Timer?
+    private var lastPhase: Phase = .idle
 
     init() {
         let dir = Storage.directory
         stats = StatsStore(url: dir.appendingPathComponent("sessions.jsonl"))
         parkingLot = ParkingLot(url: dir.appendingPathComponent("parking-lot.md"))
+        blocklist = BlocklistFile(url: dir.appendingPathComponent("blocklist.txt"))
         settings = Storage.load(FocusSettings.self, key: Storage.settingsKey) ?? FocusSettings()
         engine = Storage.load(TimerEngine.self, key: Storage.engineKey) ?? TimerEngine()
         let debugScale = UserDefaults.standard.double(forKey: "debugSecondsPerMinute")
@@ -45,18 +45,11 @@ final class FocusController {
         lastPhase = engine.phase
 
         notifier.onAction = { [weak self] action in self?.handle(action) }
-        appBlocker.onBlocked = { [weak self] name in self?.hud.show("\(name) blocked · \(self?.timeText ?? "")") }
-        arcBlocker.onBlocked = { [weak self] host in self?.hud.show("\(host) blocked · \(self?.timeText ?? "")") }
-        arcBlocker.onPermissionDenied = { [weak self] in
-            self?.hud.show("Allow Lock In to control Arc: System Settings › Privacy › Automation", seconds: 5)
-        }
-        arcBlocker.redirectURL = { [weak self] host in self?.blockedPageURL(host: host) }
-        parkingPanel.onSave = { [weak self] text in self?.park(text) }
+        appBlocker.onBlocked = { [weak self] name in self?.blocked(name) }
         dnd.onInstalledChange = { [weak self] installed in self?.dndShortcutsInstalled = installed }
         if settings.autoDoNotDisturb { dnd.refreshInstalled() }
 
-        let ws = NSWorkspace.shared.notificationCenter
-        ws.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.autoPause(at: Date()) }
         }
 
@@ -71,16 +64,12 @@ final class FocusController {
         switch engine.phase {
         case .idle: return ""
         case .breakReady: return "Break"
-        case .focus, .onBreak:
-            return Self.clock(engine.remaining(at: now) ?? engine.elapsed(at: now))
+        case .focus, .onBreak: return Self.clock(engine.remaining(at: now) ?? engine.elapsed(at: now))
         }
     }
 
-    var todaySeconds: TimeInterval { stats.focusedSeconds(on: now) + liveFocusSeconds }
+    var todaySeconds: TimeInterval { stats.focusedSeconds(on: now) + (engine.phase == .focus ? engine.elapsed(at: now) : 0) }
     var todayBlocks: Int { stats.completedBlocks(on: now) }
-
-    /// Focus time of the block in progress, so "today" moves while you work.
-    private var liveFocusSeconds: TimeInterval { engine.phase == .focus ? engine.elapsed(at: now) : 0 }
 
     static func clock(_ seconds: TimeInterval) -> String {
         let s = Int(seconds.rounded(.up))
@@ -98,7 +87,7 @@ final class FocusController {
     /// ⌃⌥F: the one key that always moves you forward.
     func primaryAction() {
         switch engine.phase {
-        case .idle: requestPopover?()
+        case .idle: askIntention()
         case .focus, .onBreak: pauseResume()
         case .breakReady: startBreak()
         }
@@ -114,9 +103,15 @@ final class FocusController {
         }
     }
 
-    func start(intention: String? = nil) {
-        engine.startFocus(intention: intention ?? draftIntention, settings: settings, now: Date())
-        draftIntention = ""
+    func askIntention() {
+        let mode = settings.mode == .fixed ? "\(settings.focusMinutes) min" : "Flow"
+        prompt.show(placeholder: "One thing for this block?  (\(mode) · Enter starts · Esc cancels)") { [weak self] text in
+            self?.start(intention: text)
+        }
+    }
+
+    func start(intention: String) {
+        engine.startFocus(intention: intention, settings: settings, now: Date())
         sync()
     }
 
@@ -154,11 +149,21 @@ final class FocusController {
 
     func hideOverlay() { overlay.hide() }
 
-    func showParkingLot() { parkingPanel.show() }
+    func showParkingLot() {
+        prompt.show(placeholder: "Park a thought…  (Enter saves · Esc cancels)") { [weak self] text in self?.park(text) }
+    }
 
     func openParkingLot() {
         if !FileManager.default.fileExists(atPath: parkingLot.url.path) { try? parkingLot.append("(parking lot created)") }
         NSWorkspace.shared.open(parkingLot.url)
+    }
+
+    func editBlocklist() { NSWorkspace.shared.open(blocklist.ensureExists()) }
+
+    /// Cheap refreshes worth doing when the user looks at the menu.
+    func menuWillOpen() {
+        parkedCount = parkingLot.openCount()
+        if settings.autoDoNotDisturb && !dndShortcutsInstalled { dnd.refreshInstalled() }
     }
 
     func update(_ change: (inout FocusSettings) -> Void) {
@@ -174,29 +179,32 @@ final class FocusController {
         sync()
     }
 
-    func binding<T>(_ path: WritableKeyPath<FocusSettings, T>) -> Binding<T> {
-        Binding(get: { self.settings[keyPath: path] }, set: { value in self.update { $0[keyPath: path] = value } })
-    }
-
     func quit() {
         if engine.phase == .focus, settings.autoDoNotDisturb { dnd.set(false) }
         Storage.save(engine, key: Storage.engineKey)
         NSApp.terminate(nil)
     }
 
+    /// lockin://start?intent=…, ask, toggle, stop, break, skip, extend, park?text=…, quit, snapshot?dir=…
+    /// Handy for Raycast/Shortcuts and for scripted testing.
     func handle(url: URL) {
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let param = { (name: String) in query.first { $0.name == name }?.value }
         switch url.host() {
         case "start": start(intention: param("intent") ?? "")
+        case "ask": askIntention()
         case "toggle": primaryAction()
         case "stop": stopFocus()
         case "break": breakAction()
         case "skip": skipBreak()
         case "extend": extend()
         case "park": param("text").map(park)
-        case "show": requestPopover?()
         case "quit": quit()
+        case "snapshot":
+            let dir = URL(fileURLWithPath: param("dir") ?? NSTemporaryDirectory())
+            overlay.snapshot(to: dir)
+            prompt.snapshot(to: dir)
+            onSnapshot?(dir)
         default: log.error("unknown url \(url.absoluteString, privacy: .public)")
         }
     }
@@ -211,6 +219,7 @@ final class FocusController {
         } else {
             checkIdle()
         }
+        if engine.isOnBreak { overlay.refresh() }
         onChange?()
     }
 
@@ -236,7 +245,7 @@ final class FocusController {
         switch action {
         case .startBreak: startBreak()
         case .extend: extend()
-        case .startFocus: requestPopover?()
+        case .startFocus: askIntention()
         case .resume: if engine.isPaused { pauseResume() }
         }
     }
@@ -252,11 +261,10 @@ final class FocusController {
     private func sync(force: Bool = false) {
         now = Date()
         let phase = engine.phase
-        let focusing = phase == .focus && engine.isRunning
-        let blocking = focusing && settings.blockingEnabled
+        let blocking = phase == .focus && engine.isRunning && settings.blockingEnabled
 
-        appBlocker.setActive(blocking, apps: settings.blockedApps)
-        arcBlocker.setActive(blocking, domains: settings.blockedSites)
+        if blocking && lastPhase != .focus { blocklist.reload() }
+        appBlocker.setActive(blocking, apps: blocklist.apps)
 
         let wasFocus = lastPhase == .focus, isFocus = phase == .focus
         if settings.autoDoNotDisturb, force ? isFocus : wasFocus != isFocus { dnd.set(isFocus) }
@@ -284,7 +292,7 @@ final class FocusController {
                 MainActor.assumeIsolated { self?.tick() }
             }
             t.tolerance = 0.2
-            RunLoop.main.add(t, forMode: .common)
+            RunLoop.main.add(t, forMode: .common) // keeps counting while the menu is open
             ticker = t
         } else if !engine.isRunning {
             ticker?.invalidate()
@@ -329,6 +337,11 @@ final class FocusController {
         returnWatcher = nil
     }
 
+    private func blocked(_ what: String) {
+        log.info("blocked \(what, privacy: .public)")
+        hud.show("\(what) blocked · \(timeText) left")
+    }
+
     // MARK: Parking lot
 
     private func park(_ text: String) {
@@ -336,23 +349,12 @@ final class FocusController {
             try parkingLot.append(text)
             parkedCount = parkingLot.openCount()
             hud.show("Parked · back to it")
+            onChange?()
         } catch {
             hud.show("Couldn't save: \(error.localizedDescription)")
         }
     }
 
-    // MARK: Blocked page
-
-    private func blockedPageURL(host: String) -> String? {
-        guard let page = Bundle.main.url(forResource: "blocked", withExtension: "html"),
-              var c = URLComponents(url: page, resolvingAgainstBaseURL: false) else { return nil }
-        var items = [URLQueryItem(name: "site", value: host), URLQueryItem(name: "intent", value: engine.intention)]
-        if let left = engine.remaining(at: Date()) {
-            items.append(URLQueryItem(name: "until", value: String(Int(Date().addingTimeInterval(left).timeIntervalSince1970))))
-        }
-        c.queryItems = items
-        return c.url?.absoluteString
-    }
 }
 
 enum IdleClock {
