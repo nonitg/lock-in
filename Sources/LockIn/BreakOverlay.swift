@@ -24,10 +24,16 @@ final class BreakOverlay {
             w.onEscape = { [weak self] in self?.hide() }
             w.contentView = makeContent(size: screen.frame.size)
             w.setFrame(screen.frame, display: true)
+            w.alphaValue = 0
             w.orderFrontRegardless()
             windows.append(w)
         }
         refresh()
+        // Quick fade so the dim lands softly instead of slamming the screen.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            windows.forEach { $0.animator().alphaValue = 1 }
+        }
         NSApp.activate(ignoringOtherApps: true)
         windows.first?.makeKey()
     }
@@ -39,7 +45,7 @@ final class BreakOverlay {
         let n = controller.parkedCount
         parkedButtons.forEach {
             $0.isHidden = n == 0
-            $0.title = "\(n) parked thought\(n == 1 ? "" : "s") · open"
+            $0.title = "Review \(n) parked thought\(n == 1 ? "" : "s") →"
         }
     }
 
@@ -50,11 +56,20 @@ final class BreakOverlay {
 
     func hide() {
         guard !windows.isEmpty else { return }
-        windows.forEach { $0.orderOut(nil) }
+        let closing = windows
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            closing.forEach { $0.animator().alphaValue = 0 }
+        }) { [weak self] in
+            MainActor.assumeIsolated {
+                closing.forEach { $0.orderOut(nil) }
+                // Hand focus back to whatever you were using, unless a new break re-showed the overlay mid-fade.
+                if self?.windows.isEmpty ?? true { NSApp.hide(nil) }
+            }
+        }
         windows.removeAll()
         clocks.removeAll()
         parkedButtons.removeAll()
-        NSApp.hide(nil) // hand focus back to whatever you were using
     }
 
     private func makeContent(size: NSSize) -> NSView {
@@ -72,7 +87,7 @@ final class BreakOverlay {
         parked.contentTintColor = .white
         parkedButtons.append(parked)
 
-        let hide = NSButton(title: "Hide  (Esc)", target: self, action: #selector(hideTapped))
+        let hide = NSButton(title: "Hide (Esc)", target: self, action: #selector(hideTapped))
         let skip = NSButton(title: "Skip break", target: self, action: #selector(skipTapped))
         [hide, skip].forEach { $0.bezelStyle = .push; $0.controlSize = .large }
         let buttons = NSStackView(views: [hide, skip])
@@ -108,7 +123,11 @@ final class BreakOverlay {
 
     @objc private func hideTapped() { hide() }
     @objc private func skipTapped() { controller.skipBreak() }
-    @objc private func openParked() { controller.openParkingLot() }
+    /// Step out of the way first, or the file opens hidden behind the dim.
+    @objc private func openParked() {
+        hide()
+        controller.openParkingLot()
+    }
 }
 
 private final class OverlayWindow: NSWindow {

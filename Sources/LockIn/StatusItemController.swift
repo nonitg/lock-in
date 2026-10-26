@@ -43,7 +43,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
         // Live rows while the menu is open.
         if let headerItem { headerItem.attributedTitle = headerTitle() }
-        if let todayItem { todayItem.title = todayTitle() }
+        if let todayItem { todayItem.attributedTitle = todayTitle() }
     }
 
     // MARK: Menu
@@ -81,7 +81,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(action(e.focusMode == .flow && e.extensionOf == nil ? "Done · Take Break" : "End Focus", key: "b") { $0.stopFocus() })
         case .breakReady:
             menu.addItem(action("Start Break · \(FocusController.duration(e.pendingBreak))", key: "b") { $0.startBreak() })
-            menu.addItem(action("Keep Going 5 More Minutes") { $0.extend() })
+            menu.addItem(action("Keep Going · +5m") { $0.extend() })
             menu.addItem(action("Skip Break") { $0.skipBreak() })
         case .onBreak:
             menu.addItem(action(e.isRunning ? "Pause Break" : "Resume Break", key: "f") { $0.pauseResume() })
@@ -89,7 +89,8 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
-        let today = NSMenuItem(title: todayTitle(), action: nil, keyEquivalent: "")
+        let today = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        today.attributedTitle = todayTitle()
         today.isEnabled = false
         menu.addItem(today)
         todayItem = today
@@ -119,7 +120,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         m.addItem(.separator())
         m.addItem(toggle("Start Breaks Automatically", \.autoStartBreaks))
         m.addItem(toggle("Dim Screens on Break", \.breakOverlayEnabled))
-        m.addItem(toggle("Pause When Away \(s.idleMinutes) min", \.idlePauseEnabled))
+        m.addItem(toggle("Pause When Away (\(s.idleMinutes) min)", \.idlePauseEnabled))
         m.addItem(.separator())
         m.addItem(toggle("Hide Distracting Apps During Focus", \.blockingEnabled))
         m.addItem(action("Edit Blocked Apps…") { $0.editBlocklist() })
@@ -154,7 +155,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         case .onBreak(let kind): text = "\(kind == .long ? "Long break" : "Break") · \(timing(end: "back at"))"
         }
         return NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: Self.menuFont.pointSize, weight: .semibold),
         ])
     }
 
@@ -172,16 +173,34 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         return f
     }()
 
-    private func todayTitle() -> String {
-        let week = c.stats.dailyTotals(days: 7, endingOn: c.now).map(\.seconds)
+    private static let menuFont = NSFont.menuFont(ofSize: 0)
+
+    private func todayTitle() -> NSAttributedString {
         let blocks = c.todayBlocks
-        return "Today \(FocusController.duration(c.todaySeconds)) · \(blocks) block\(blocks == 1 ? "" : "s")    \(Self.sparkline(week))"
+        let title = NSMutableAttributedString(
+            string: "Today \(FocusController.duration(c.todaySeconds)) · \(blocks) block\(blocks == 1 ? "" : "s")   ",
+            attributes: [.font: Self.menuFont])
+        let chart = NSTextAttachment()
+        chart.image = Self.weekBars(c.stats.dailyTotals(days: 7, endingOn: c.now).map(\.seconds))
+        chart.bounds = NSRect(origin: .zero, size: chart.image!.size)
+        title.append(NSAttributedString(attachment: chart))
+        return title
     }
 
-    static func sparkline(_ values: [Double]) -> String {
-        let bars = Array("▁▂▃▄▅▆▇█")
+    /// Last 7 days as tiny bars, today solid. Empty days keep a stub so the week still reads as seven slots.
+    static func weekBars(_ values: [Double]) -> NSImage {
+        let bar: CGFloat = 4, gap: CGFloat = 3, height: CGFloat = 11
         let top = max(values.max() ?? 0, 1)
-        return String(values.map { bars[min(bars.count - 1, Int($0 / top * Double(bars.count - 1)))] })
+        let size = NSSize(width: CGFloat(values.count) * (bar + gap) - gap, height: height)
+        return NSImage(size: size, flipped: false) { _ in
+            for (i, v) in values.enumerated() {
+                // Muted to sit with the row's dimmed text; today one step brighter.
+                (i == values.count - 1 ? NSColor.secondaryLabelColor : NSColor.tertiaryLabelColor).setFill()
+                let h = max(2, (height * v / top).rounded())
+                NSBezierPath(roundedRect: NSRect(x: CGFloat(i) * (bar + gap), y: 0, width: bar, height: h), xRadius: 1.5, yRadius: 1.5).fill()
+            }
+            return true
+        }
     }
 
     // MARK: Item builders

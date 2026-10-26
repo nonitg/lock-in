@@ -18,21 +18,30 @@ final class HUD {
         content.material = .hudWindow
         content.state = .active
         content.wantsLayer = true
-        content.layer?.cornerRadius = 10
+        content.layer?.cornerRadius = size.height / 2
+        content.layer?.cornerCurve = .continuous
+        content.layer?.masksToBounds = true
         label.frame.origin = NSPoint(x: 16, y: (size.height - label.frame.height) / 2)
         content.addSubview(label)
         panel.contentView = content
 
-        let screen = NSScreen.main?.visibleFrame ?? .zero
-        panel.setFrame(NSRect(x: screen.midX - size.width / 2, y: screen.maxY - size.height - 12,
+        let screen = NSScreen.underMouse
+        let frame = screen?.frame ?? .zero, visible = screen?.visibleFrame ?? .zero
+        panel.setFrame(NSRect(x: (frame.midX - size.width / 2).rounded(), y: visible.maxY - size.height - 12,
                               width: size.width, height: size.height), display: true)
+        panel.invalidateShadow()
         panel.alphaValue = 1
         panel.orderFrontRegardless()
 
         hideWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.panel?.orderOut(nil)
-            self?.panel = nil
+            guard let panel = self?.panel else { return }
+            NSAnimationContext.runAnimationGroup({ $0.duration = 0.2; panel.animator().alphaValue = 0 }) {
+                // A newer toast may have reused the panel mid-fade.
+                guard panel.alphaValue == 0 else { return }
+                panel.orderOut(nil)
+                if self?.panel === panel { self?.panel = nil }
+            }
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
@@ -47,5 +56,13 @@ final class HUD {
         p.ignoresMouseEvents = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         return p
+    }
+}
+
+extension NSScreen {
+    /// The screen you're looking at: wherever the pointer is.
+    static var underMouse: NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return screens.first { $0.frame.contains(mouse) } ?? main
     }
 }

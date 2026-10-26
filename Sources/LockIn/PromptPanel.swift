@@ -66,8 +66,7 @@ final class PromptPanel: NSObject, NSTextFieldDelegate, NSWindowDelegate {
         p.contentView = bg
 
         // Spotlight's spot: centered on the full screen width, a fifth of the way down the screen under the mouse.
-        let mouse = NSEvent.mouseLocation
-        let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
+        let screen = NSScreen.underMouse
         let frame = screen?.frame ?? .zero, visible = screen?.visibleFrame ?? .zero
         p.setFrameOrigin(NSPoint(x: (frame.midX - size.width / 2).rounded(),
                                  y: (visible.maxY - frame.height * 0.2 - size.height).rounded()))
