@@ -62,11 +62,13 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         let e = c.engine
 
-        let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        header.attributedTitle = headerTitle()
-        header.isEnabled = false
-        menu.addItem(header)
-        headerItem = header
+        if e.phase != .idle {
+            let header = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+            header.attributedTitle = headerTitle()
+            header.isEnabled = false
+            menu.addItem(header)
+            headerItem = header
+        }
 
         switch e.phase {
         case .idle:
@@ -138,23 +140,37 @@ final class StatusItemController: NSObject, NSMenuDelegate {
 
     // MARK: Titles
 
+    /// What you're on and when it ends. The countdown itself lives in the menu bar only.
     private func headerTitle() -> NSAttributedString {
         let e = c.engine
         let text: String
         switch e.phase {
-        case .idle: text = "Ready when you are"
+        case .idle: text = ""
         case .focus:
-            let what = e.intention.isEmpty ? "Focus" : e.intention
-            let state = c.idlePausedAt != nil ? " · paused (away)" : (e.isPaused ? " · paused" : "")
-            text = "\(c.timeText)  \(what)\(state)"
+            // Clipped so a long intention doesn't stretch the whole menu.
+            let what = e.intention.isEmpty ? "Focus" : e.intention.count > 42 ? e.intention.prefix(40) + "…" : e.intention
+            text = "\(what) · \(c.idlePausedAt != nil ? "paused while away" : timing(end: "ends"))"
         case .breakReady: text = "Block done · break when ready"
-        case .onBreak: text = "\(c.timeText)  Break\(e.isPaused ? " · paused" : "")"
+        case .onBreak(let kind): text = "\(kind == .long ? "Long break" : "Break") · \(timing(end: "back at"))"
         }
         return NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
-            .foregroundColor: NSColor.labelColor,
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold),
         ])
     }
+
+    /// "ends 2:15 PM" for timed segments, "since 1:05 PM" for flow, "paused" when stopped.
+    private func timing(end verb: String) -> String {
+        let e = c.engine
+        guard e.isRunning else { return "paused" }
+        if let left = e.remaining(at: c.now) { return "\(verb) \(Self.clockTime.string(from: c.now + left))" }
+        return "since \(Self.clockTime.string(from: c.now - e.elapsed(at: c.now)))"
+    }
+
+    private static let clockTime: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f
+    }()
 
     private func todayTitle() -> String {
         let week = c.stats.dailyTotals(days: 7, endingOn: c.now).map(\.seconds)
