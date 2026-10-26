@@ -22,11 +22,12 @@ public struct FocusSettings: Codable, Equatable, Sendable {
 
     public var autoDoNotDisturb = false
     public var idlePauseEnabled = true
-    public var idleMinutes = 5
     public var breakOverlayEnabled = true
     public var launchAtLogin = true
     public var sound = "Glass"
 
+    /// Away time before auto-pause. Generous because the pause rewinds to the last input. Not persisted.
+    public var idleMinutes = 10
     /// Debug only: shrink a "minute" so a whole cycle can be tested fast. Never persisted.
     public var secondsPerMinute: Double = 60
 
@@ -38,7 +39,7 @@ public struct FocusSettings: Codable, Equatable, Sendable {
         case mode, focusMinutes, shortBreakMinutes, longBreakMinutes, longBreakEvery
         case flowBreakDivisor, minFlowBreakMinutes, autoStartBreaks
         case blockingEnabled
-        case autoDoNotDisturb, idlePauseEnabled, idleMinutes, breakOverlayEnabled, launchAtLogin, sound
+        case autoDoNotDisturb, idlePauseEnabled, breakOverlayEnabled, launchAtLogin, sound
     }
 
     // Tolerant decode so settings saved by older builds keep working when fields are added.
@@ -57,7 +58,6 @@ public struct FocusSettings: Codable, Equatable, Sendable {
         blockingEnabled = v(.blockingEnabled, d.blockingEnabled)
         autoDoNotDisturb = v(.autoDoNotDisturb, d.autoDoNotDisturb)
         idlePauseEnabled = v(.idlePauseEnabled, d.idlePauseEnabled)
-        idleMinutes = v(.idleMinutes, d.idleMinutes)
         breakOverlayEnabled = v(.breakOverlayEnabled, d.breakOverlayEnabled)
         launchAtLogin = v(.launchAtLogin, d.launchAtLogin)
         sound = v(.sound, d.sound)

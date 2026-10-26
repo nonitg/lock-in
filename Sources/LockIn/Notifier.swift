@@ -3,8 +3,8 @@ import UserNotifications
 
 /// Banners with action buttons. Sound is played separately so it's audible even under Do Not Disturb.
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
-    enum Kind: String { case focusDone, breakDone, idleBack }
-    enum Action: String { case startBreak, extend, startFocus, resume }
+    enum Kind: String { case focusDone, breakDone }
+    enum Action: String { case startBreak, extend, startFocus }
 
     var onAction: ((Action) -> Void)?
     private let center = UNUserNotificationCenter.current()
@@ -15,7 +15,6 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         center.setNotificationCategories([
             category(.focusDone, [(.startBreak, "Start break"), (.extend, "+5 min")]),
             category(.breakDone, [(.startFocus, "Start focus")]),
-            category(.idleBack, [(.resume, "Resume")]),
         ])
         center.requestAuthorization(options: [.alert]) { _, _ in }
     }

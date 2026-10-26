@@ -1,4 +1,5 @@
 import AppKit
+import IOKit.pwr_mgt
 import LockInCore
 import os
 import UniformTypeIdentifiers
@@ -252,7 +253,6 @@ final class FocusController {
         case .startBreak: startBreak()
         case .extend: extend()
         case .startFocus: askIntention()
-        case .resume: if engine.isPaused { pauseResume() }
         }
     }
 
@@ -311,7 +311,7 @@ final class FocusController {
     private func checkIdle() {
         guard settings.idlePauseEnabled, engine.phase == .focus, engine.isRunning else { return }
         let idle = IdleClock.secondsSinceInput()
-        guard idle >= settings.minutes(settings.idleMinutes) else { return }
+        guard idle >= settings.minutes(settings.idleMinutes), !IdleClock.displayKeptAwake() else { return }
         autoPause(at: Date().addingTimeInterval(-idle))
     }
 
@@ -328,9 +328,10 @@ final class FocusController {
         let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, IdleClock.secondsSinceInput() < 4 else { return }
-                self.stopReturnWatch()
                 let away = Self.duration(Date().timeIntervalSince(self.idlePausedAt ?? Date()))
-                self.notifier.post(.idleBack, title: "Welcome back", body: "Focus paused while you were away (\(away)). Resume?")
+                guard self.engine.isPaused else { return self.stopReturnWatch() }
+                self.pauseResume()
+                self.hud.show("Welcome back · resumed (away \(away))")
             }
         }
         t.tolerance = 1
@@ -367,6 +368,14 @@ final class FocusController {
 enum IdleClock {
     static func secondsSinceInput() -> TimeInterval {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
+    /// Video players and calls hold this, so watching or listening isn't "away". A screen that's merely not asleep yet doesn't.
+    static func displayKeptAwake() -> Bool {
+        var status: Unmanaged<CFDictionary>?
+        guard IOPMCopyAssertionsStatus(&status) == kIOReturnSuccess,
+              let dict = status?.takeRetainedValue() as? [String: Int] else { return false }
+        return (dict[kIOPMAssertPreventUserIdleDisplaySleep] ?? 0) > 0
     }
 }
 
