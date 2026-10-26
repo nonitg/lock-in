@@ -111,4 +111,20 @@ final class PromptPanel: NSObject, NSTextFieldDelegate, NSWindowDelegate {
 
 private final class KeyPanel: NSPanel {
     override var canBecomeKey: Bool { true }
+
+    /// Menu bar apps have no Edit menu, so ⌘X/C/V/A/Z never reach the field unless routed here.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let action: Selector? = switch (mods, event.charactersIgnoringModifiers) {
+        case (.command, "x"): #selector(NSText.cut(_:))
+        case (.command, "c"): #selector(NSText.copy(_:))
+        case (.command, "v"): #selector(NSText.paste(_:))
+        case (.command, "a"): #selector(NSText.selectAll(_:))
+        case (.command, "z"): Selector(("undo:"))
+        case ([.command, .shift], "z"), ([.command, .shift], "Z"): Selector(("redo:"))
+        default: nil
+        }
+        if let action, NSApp.sendAction(action, to: nil, from: self) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
 }
